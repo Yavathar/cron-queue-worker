@@ -36,70 +36,57 @@ class Cron {
     async do(data) {
         console.time('task');
 
+        // get queue size
+        const queueSize = this.queue.getLength();
+
         // get from queue head
         const headItem = this.queue.getFromHead();
         if (!headItem) {
-            console.log('[TASK] Nothing in the queue');
+            console.log('[TASK] Queue size: 0');
             console.timeEnd('task');
             return;
         }
 
-        // do with the head item
-        if (headItem.getStatus() !== DBSyncStatus.PENDING) {
-            console.log('[TASK] Not pending');
-            console.timeEnd('task');
-            return;
-        }
-
-        console.log('[TASK] This item is ', headItem);
-
-        // let total = 0;
-        // for (let index = 0; index < 1000000000; index++) {
-        //     total = total + index;
-        //     if (headItem.getStatus() === DBSyncStatus.CANCELLED) {
-        //         console.log('(1) This item was cancelled at', index, total);
-        //         this.queue.getAndDeleteFromHead();
-        //         return resolve();
-        //     }
-        // }
-
-        console.log('[TASK] 3 sec job...');
-        await sleep(3000);
-
-        console.log('[TASK] (1) End of calculation');
-
-        if (headItem.getStatus() === DBSyncStatus.CANCELLED) {
-            console.log('[TASK] (1) This item was cancelled');
+        // check the head item's status
+        if (headItem.getStatus() === DBSyncStatus.CANCELED) {
+            console.log(`[TASK] Queue[0]/${queueSize} == CANCELED ; delete it`);
             this.queue.getAndDeleteFromHead();
             console.timeEnd('task');
             return;
         }
 
-        // for (let index = 0; index < 1000000000; index++) {
-        //     total = total + index;
-        //     if (headItem.getStatus() === DBSyncStatus.CANCELLED) {
-        //         console.log('(2) This item was cancelled at', index, total);
-        //         this.queue.getAndDeleteFromHead();
-        //         return resolve();
-        //     }
-        // }
+        if (headItem.getStatus() === DBSyncStatus.RUNNING) {
+            console.log(`[TASK] Queue[0]/${queueSize} == RUNNING ; pass it`);
+            console.timeEnd('task');
+            return;
+        }
 
-        console.log('[TASK] 3 sec job...');
+        // set it RUNNING
+        headItem.setRunning();
+
+        // do the process
+        console.log(`[TASK] Queue[0]/${queueSize} : `, headItem);
+
+        console.log(`[TASK] Queue[0]/${queueSize} : (1) Job 1 - 3 sec...`);
         await sleep(3000);
+        console.log(`[TASK] Queue[0]/${queueSize} : (1) Job 1 - 3 sec... End`);
 
-        console.log('[TASK] (2) End of calculation');
-
-        if (headItem.getStatus() === DBSyncStatus.CANCELLED) {
-            console.log('[TASK] (2) This item was cancelled');
+        // check CANCELED
+        if (headItem.getStatus() === DBSyncStatus.CANCELED) {
+            console.log(`[TASK] Queue[0]/${queueSize} : Canceled`);
             this.queue.getAndDeleteFromHead();
             console.timeEnd('task');
             return;
         }
+
+        console.log(`[TASK] Queue[0]/${queueSize} : (2) Job 2 - 2 sec...`);
+        await sleep(2000);
+        console.log(`[TASK] Queue[0]/${queueSize} : (2) Job 2 - 2 sec... End`);
+
+        console.log(`[TASK] Queue[0]/${queueSize} : ... End`)
 
         // remove from queue
         this.queue.getAndDeleteFromHead();
-
-        console.log('[TASK] End of func')
 
         console.timeEnd('task');
         return;
@@ -107,17 +94,18 @@ class Cron {
 
     // Queue
     // Always with nodeId, nodeNumber, tenantNumber
-    addDBSyncTaskToQueue(pbxId, nodeNumber, tenantNumber) {
+    async addDBSyncTaskToQueue(pbxId, nodeNumber, tenantNumber) {
         const syncInfo = new DBSyncInfo({pbxId, nodeNumber, tenantNumber});
 
         if (this.queue.findByPbxNodeTenant(syncInfo)) {
-            return Promise.reject();
+            throw new Error('There is the same task in the queue.');
         }
 
         syncInfo.setPending();
-        this.queue.addToTail(syncInfo);
-
-        return Promise.resolve();
+        const queueLen = this.queue.addToTail(syncInfo);
+        if (!queueLen) {
+            throw new Error('Cannot add this task in the queue any more.');
+        }
     }
 
     cancelDBSyncTask(pbxId, nodeNumber, tenantNumber) {
@@ -125,8 +113,7 @@ class Cron {
 
         const found = this.queue.findByPbxNodeTenant(syncInfo);
         if (found) {
-            console.log(`Found pbxId(${pbxId}), node(${nodeNumber}), tenant(${tenantNumber})`);
-            found.setCancelled();
+            found.setCanceled();
             return Promise.resolve();
         }
 
@@ -152,8 +139,8 @@ class DBSyncInfo {
         this.status = DBSyncStatus.RUNNING;
     }
 
-    setCancelled() {
-        this.status = DBSyncStatus.CANCELLED;
+    setCanceled() {
+        this.status = DBSyncStatus.CANCELED;
     }
 
     getStatus() {
@@ -164,17 +151,21 @@ class DBSyncInfo {
 class DBSyncStatus {
     static PENDING = 'PENDING';
     static RUNNING = 'RUNNING';
-    static CANCELLED = 'CANCELLED';
+    static CANCELED = 'CANCELED';
 }
 
 class CronQueue {
     // Based on Array
     constructor() {
         this.list = [];
+        this.maxQueueSize = 10;
     }
 
     addToTail(syncInfo) {
-        this.list.push(syncInfo);
+        if (this.list.length < this.maxQueueSize) {
+            return this.list.push(syncInfo);
+        }
+        return undefined;
     }
 
     getFromHead() {
