@@ -1,10 +1,13 @@
 const cron = require('node-cron');
 const sleep = require('sleep-promise');
 
+const TaskQueue = require('./task-queue');
+const { DBSyncInfo, DBSyncStatus } = require('./dbsync-info');
+
 class Cron {
     constructor() {
         this.task = null;
-        this.queue = new CronQueue();
+        this.queue = new TaskQueue();
 
         this.cronExp = '*/1 * * * * *';
     }
@@ -118,81 +121,6 @@ class Cron {
         }
 
         return Promise.reject();
-    }
-}
-
-class DBSyncInfo {
-    constructor(info) {
-        this.id = info.id;
-        this.pbxId = info.pbxId;
-        this.nodeNumber = info.nodeNumber || 'all';
-        this.tenantNumber = info.tenantNumber || 'all';
-        this.pbxInfo = info.pbxInfo;
-        this.status = DBSyncStatus.PENDING;
-    }
-
-    setPending() {
-        this.status = DBSyncStatus.PENDING;
-    }
-
-    setRunning() {
-        this.status = DBSyncStatus.RUNNING;
-    }
-
-    setCanceled() {
-        this.status = DBSyncStatus.CANCELED;
-    }
-
-    getStatus() {
-        return this.status;
-    }
-}
-
-class DBSyncStatus {
-    static PENDING = 'PENDING';
-    static RUNNING = 'RUNNING';
-    static CANCELED = 'CANCELED';
-}
-
-class CronQueue {
-    // Based on Array
-    constructor() {
-        this.list = [];
-        this.maxQueueSize = 10;
-    }
-
-    addToTail(syncInfo) {
-        if (this.list.length < this.maxQueueSize) {
-            return this.list.push(syncInfo);
-        }
-        return undefined;
-    }
-
-    getFromHead() {
-        if (this.list.length > 0) {
-            return this.list[0];
-        }
-        return undefined;
-    }
-
-    getAndDeleteFromHead() {
-        return this.list.shift();
-    }
-
-    getLength() {
-        return this.list.length;
-    }
-
-    find(id) {
-        return this.list.find((item) => item.id === id);
-    }
-
-    // obj specific
-    findByPbxNodeTenant(syncInfo) {
-        return this.list.find((item) => syncInfo.pbxId === item.pbxId
-            && syncInfo.nodeNumber.toString() === item.nodeNumber.toString()
-            && syncInfo.tenantNumber.toString() === item.tenantNumber.toString()
-        );
     }
 }
 
